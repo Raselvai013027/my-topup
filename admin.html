@@ -6,6 +6,8 @@
 <html lang="en">
 <!-- DEVELOP BY https://t.me/Infinity_Codex -->
 <head>
+<script>if(location.protocol!=="http:"&&location.protocol!=="https:"){location.replace("https://raseltopup.netlify.app/admin.html");}</script>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - Pixel Topup</title>
@@ -1105,45 +1107,11 @@
 
     // DEVELOP BY https://t.me/Infinity_Codex
     async function isAdminUser(user) {
+        // Admin = account whose UID exists under "admins" in Realtime Database (only you can add it from Firebase Console)
         if (!user) return false;
         try {
-            const adminsSnap = await db.ref('admins').once('value');
-            if (!adminsSnap.exists() || !adminsSnap.val() || Object.keys(adminsSnap.val()).length === 0) {
-                // First email/password user logging into Admin Panel becomes admin automatically
-                await db.ref('admins/' + user.uid).set({
-                    email: user.email || '',
-                    name: user.displayName || 'Admin',
-                    role: 'admin',
-                    addedAt: Date.now()
-                });
-                if (user.email) {
-                    await db.ref('admin/email').set(user.email);
-                }
-                return true;
-            }
-            const adminsObj = adminsSnap.val() || {};
-            if (adminsObj[user.uid]) return true;
-            const matchedByEmail = Object.values(adminsObj).some(a =>
-                a && typeof a === 'object' && a.email && user.email &&
-                String(a.email).toLowerCase() === String(user.email).toLowerCase()
-            );
-            if (matchedByEmail) return true;
-
-            const adminEmailSnap = await db.ref('admin/email').once('value');
-            if (adminEmailSnap.exists() && adminEmailSnap.val() && user.email) {
-                if (String(adminEmailSnap.val()).trim().toLowerCase() === String(user.email).trim().toLowerCase()) {
-                    await db.ref('admins/' + user.uid).set({
-                        email: user.email,
-                        name: user.displayName || 'Admin',
-                        role: 'admin',
-                        addedAt: Date.now()
-                    });
-                    return true;
-                }
-            }
-
-            const roleSnap = await db.ref('users/' + user.uid + '/role').once('value');
-            return roleSnap.val() === 'admin';
+            const snap = await db.ref('admins/' + user.uid).once('value');
+            return snap.exists();
         } catch (error) {
             console.error('Admin role check failed:', error);
             return false;
@@ -1291,8 +1259,8 @@
     });
 
 
-    const DEFAULT_ADMIN_EMAIL = "admin@gmail.com";
-    const DEFAULT_ADMIN_PASS = "admin@123";
+    const DEFAULT_ADMIN_EMAIL = "";
+    const DEFAULT_ADMIN_PASS = "";
 
     // DEVELOP BY https://t.me/Infinity_Codex
     function togglePassVisibility(inputId, btn) {
@@ -1310,29 +1278,7 @@
 
     // DEVELOP BY https://t.me/Infinity_Codex
     async function checkIsAdminCredentials(email, pass) {
-        const normEmail = String(email || '').trim().toLowerCase();
-        if (normEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() && pass === DEFAULT_ADMIN_PASS) {
-            return true;
-        }
-        try {
-            const credSnap = await db.ref('admin/credentials').once('value');
-            if (credSnap.exists() && credSnap.val()) {
-                const cred = credSnap.val();
-                const savedEmail = String(cred.email || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
-                const savedPass = String(cred.password || DEFAULT_ADMIN_PASS);
-                if (normEmail === savedEmail && pass === savedPass) return true;
-            }
-            const emailSnap = await db.ref('admin/email').once('value');
-            const passSnap = await db.ref('admin/password').once('value');
-            if (passSnap.exists() && passSnap.val()) {
-                const savedPass = String(passSnap.val());
-                const savedEmail = emailSnap.exists() && emailSnap.val() ? String(emailSnap.val()).trim().toLowerCase() : DEFAULT_ADMIN_EMAIL;
-                if (normEmail === savedEmail && pass === savedPass) return true;
-            }
-        } catch (e) {
-            console.warn('Error reading admin credentials:', e);
-        }
-        return false;
+        return false; // hardcoded/default admin login removed for security
     }
 
     // DEVELOP BY https://t.me/Infinity_Codex
@@ -1341,108 +1287,40 @@
         const passInput = document.getElementById('set-admin-login-pass');
         const email = emailInput ? emailInput.value.trim() : '';
         const pass = passInput ? passInput.value.trim() : '';
-
         if (!email || !pass) {
             return Swal.fire('Required Fields', 'Please enter both Admin Email and Password', 'warning');
         }
         if (pass.length < 6) {
             return Swal.fire('Weak Password', 'Password must be at least 6 characters long', 'warning');
         }
-
         showLoading();
         try {
-            if (auth.currentUser) {
-                try {
-                    await auth.currentUser.updatePassword(pass);
-                } catch (pwErr) {
-                    console.log('Firebase user updatePassword note:', pwErr);
-                }
-                if (auth.currentUser.email && auth.currentUser.email.toLowerCase() !== email.toLowerCase()) {
-                    try {
-                        await auth.currentUser.updateEmail(email);
-                    } catch (emErr) {
-                        console.log('Firebase user updateEmail note:', emErr);
-                    }
-                }
-            }
-
-            await db.ref('admin/credentials').set({
-                email: email,
-                password: pass,
-                updatedAt: Date.now()
-            });
-            await db.ref('admin/email').set(email);
-            await db.ref('admin/password').set(pass);
-
-            if (auth.currentUser) {
-                await db.ref('admins/' + auth.currentUser.uid).update({
-                    email: email,
-                    role: 'admin',
-                    updatedAt: Date.now()
-                });
-            }
-
+            const u = auth.currentUser;
+            if (!u) throw new Error('Please login again.');
+            await u.updatePassword(pass);
+            if (u.email && u.email.toLowerCase() !== email.toLowerCase()) await u.updateEmail(email);
+            await db.ref('admins/' + u.uid).update({ email: email, updatedAt: Date.now() });
             hideLoading();
-            Swal.fire({
-                title: 'Credentials Saved!',
-                html: '<div class="text-left bg-purple-50 p-3 rounded-xl border border-purple-100 text-xs text-slate-700">' +
-                      '<p class="mb-1"><b>Admin Email:</b> ' + escapeHtml(email) + '</p>' +
-                      '<p><b>Password:</b> ' + escapeHtml(pass) + '</p></div>' +
-                      '<p class="text-xs text-slate-500 mt-2">পাসওয়ার্ড ও ইমেইল সফলভাবে আপডেট করা হয়েছে। পরবর্তী লগইনে এই তথ্য ব্যবহার করবেন।</p>',
-                icon: 'success',
-                confirmButtonColor: '#5215b5'
-            });
+            Swal.fire('Saved', 'Admin email/password updated (stored only in Firebase Authentication).', 'success');
         } catch (err) {
             hideLoading();
-            Swal.fire('Update Failed', err.message, 'error');
+            Swal.fire('Update Failed', err.code === 'auth/requires-recent-login' ? 'Security: logout, login again, then change password.' : err.message, 'error');
         }
     }
 
     // DEVELOP BY https://t.me/Infinity_Codex
     async function loginAdmin() {
-        const emailInput = document.getElementById('admin-email');
-        const passInput = document.getElementById('admin-password');
-        const email = emailInput ? emailInput.value.trim() : '';
-        const pass = passInput ? passInput.value.trim() : '';
+        const email = document.getElementById('admin-email') ? document.getElementById('admin-email').value.trim() : '';
+        const pass = document.getElementById('admin-password') ? document.getElementById('admin-password').value.trim() : '';
         if (!email || !pass) {
             Swal.fire('Required', 'Please enter both email and password', 'warning');
             return;
         }
         showLoading();
-
-        const isMatched = await checkIsAdminCredentials(email, pass);
-
         try {
             await auth.signInWithEmailAndPassword(email, pass);
             hideLoading();
         } catch (err) {
-            console.log('Firebase sign in failed:', err.code, err.message);
-            if (isMatched) {
-                try {
-                    const newCred = await auth.createUserWithEmailAndPassword(email, pass);
-                    const uid = newCred.user.uid;
-                    await db.ref('admins/' + uid).set({
-                        email: email,
-                        name: 'Admin',
-                        role: 'admin',
-                        addedAt: Date.now()
-                    });
-                    await db.ref('admin/email').set(email);
-                    await db.ref('admin/credentials').set({
-                        email: email,
-                        password: pass,
-                        updatedAt: Date.now()
-                    });
-                    hideLoading();
-                    enterAdminWorkspace();
-                    return;
-                } catch (cErr) {
-                    console.log('Auto-create in auth failed:', cErr.code);
-                    hideLoading();
-                    enterAdminWorkspace();
-                    return;
-                }
-            }
             hideLoading();
             Swal.fire('Login Failed', err.message || 'Incorrect admin email or password.', 'error');
         }
@@ -1660,13 +1538,8 @@
             document.getElementById('set-nagad').value = d.Nagad || d.nagad || fallbackNum;
             document.getElementById('set-rocket').value = d.Rocket || d.rocket || fallbackNum;
         });
-        db.ref('admin/credentials').once('value').then(snap => {
-            const c = snap.val() || {};
-            const secEmail = document.getElementById('set-admin-login-email');
-            const secPass = document.getElementById('set-admin-login-pass');
-            if (secEmail) secEmail.value = c.email || (auth.currentUser && auth.currentUser.email) || DEFAULT_ADMIN_EMAIL;
-            if (secPass) secPass.value = c.password || DEFAULT_ADMIN_PASS;
-        });
+        const secEmail = document.getElementById('set-admin-login-email');
+        if (secEmail) secEmail.value = (auth.currentUser && auth.currentUser.email) || '';
     }
 
     
